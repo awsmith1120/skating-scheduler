@@ -24,10 +24,8 @@ export default function SkatingCalendar() {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [accessKey, setAccessKey] = useState("");
 
-  // 🔒 Static password
   const ADMIN_PASSWORD = "silviarocks";
 
-  // ✅ Handles password form submission
   const handleUnlock = (e) => {
     e.preventDefault();
     if (accessKey === ADMIN_PASSWORD) {
@@ -53,14 +51,14 @@ export default function SkatingCalendar() {
     }
   }, []);
 
-  // 🎨 Coach color map
+  // 🎨 Coach colors
   const colorMap = {
     Silvia: "#3b82f6",
     John: "#10b981",
     Sherry: "#f97316",
   };
 
-  // 🧩 Normalize lesson data from Firestore
+  // 🧩 Normalize lessons
   const normalizeLesson = (docSnap) => {
     const raw = docSnap.data();
     const toJSDate = (v) =>
@@ -70,9 +68,14 @@ export default function SkatingCalendar() {
     const rink = raw.rink ?? raw?.extendedProps?.rink ?? "Unknown";
     const color = colorMap[coach] || "#6b7280";
 
+    const shortRink = rink.replace(/^The\s+/i, ""); // remove "The "
+    const isMobile = window.innerWidth < 768;
+
     return {
       id: docSnap.id,
-      title: `${student} - ${coach} (${rink.replace(/^The\s+/i, "")})`,
+      title: isMobile
+        ? `${student} (${shortRink})`
+        : `${student} - ${coach} (${shortRink})`,
       start: toJSDate(raw.start),
       end: toJSDate(raw.end),
       backgroundColor: color,
@@ -82,7 +85,7 @@ export default function SkatingCalendar() {
     };
   };
 
-  // 🔄 Live Firestore sync
+  // 🔄 Firestore sync
   useEffect(() => {
     const q = query(collection(db, "lessons"));
     const unsubscribe = onSnapshot(q, (snapshot) =>
@@ -91,7 +94,7 @@ export default function SkatingCalendar() {
     return () => unsubscribe();
   }, []);
 
-  // 🕓 Conflict detection helper
+  // ⏱️ Overlap check
   const timesOverlap = (s1, e1, s2, e2) => s1 < e2 && s2 < e1;
 
   // ➕ Add lesson
@@ -141,7 +144,7 @@ export default function SkatingCalendar() {
     }
   };
 
-  // 📝 Edit lesson
+  // ✏️ Edit / delete
   const handleEventClick = (clickInfo) => {
     if (!isAuthorized) return;
     setSelectedLesson(clickInfo.event);
@@ -183,7 +186,6 @@ export default function SkatingCalendar() {
     }
   };
 
-  // 🗑️ Delete
   const handleDeleteLesson = async (id) => {
     try {
       await deleteDoc(doc(db, "lessons", id));
@@ -195,7 +197,7 @@ export default function SkatingCalendar() {
     }
   };
 
-  // 💬 Tooltip (hover info)
+  // 💬 Hover tooltip
   const tooltipHandlers = {
     eventMouseEnter: (info) => {
       const { student, coach, rink } = info.event.extendedProps;
@@ -235,15 +237,7 @@ export default function SkatingCalendar() {
           className="space-y-3 text-center mb-6"
           autoComplete="off"
         >
-          {/* 🕵️ Hidden fake username input to block password popups */}
-          <input
-            type="text"
-            name="fakeuser"
-            id="fakeuser"
-            autoComplete="off"
-            style={{ display: "none" }}
-          />
-
+          <input type="text" name="fakeuser" style={{ display: "none" }} />
           <p className="text-gray-600 text-sm">
             Enter Silvia’s access key to unlock editing:
           </p>
@@ -282,8 +276,26 @@ export default function SkatingCalendar() {
             slotMaxTime="21:00:00"
             displayEventTime={false}
             {...tooltipHandlers}
+            windowResize={(arg) => {
+              const calendarApi = arg.view.calendar;
+              if (window.innerWidth < 768 && calendarApi.view.type !== "timeGridDay") {
+                calendarApi.changeView("timeGridDay");
+              } else if (window.innerWidth >= 768 && calendarApi.view.type === "timeGridDay") {
+                calendarApi.changeView("timeGridWeek");
+              }
+            }}
           />
         </div>
+
+        <style>{`
+          @media (max-width: 768px) {
+            .fc .fc-event-title { font-size: 0.75rem !important; line-height: 1rem !important; }
+            .fc .fc-toolbar-title { font-size: 1rem !important; }
+            .fc .fc-button { padding: 0.25rem 0.5rem !important; font-size: 0.75rem !important; }
+            .fc-timegrid-slot { height: 2.5rem !important; }
+            .fc-view-harness { overflow-x: auto; }
+          }
+        `}</style>
       </div>
     );
   }
@@ -293,7 +305,6 @@ export default function SkatingCalendar() {
     <div className="p-4 w-full">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-3xl font-bold">Skating Lesson Calendar</h1>
-
         <div className="flex items-center gap-3">
           <button
             onClick={handleLockEditing}
@@ -327,6 +338,14 @@ export default function SkatingCalendar() {
           displayEventTime={false}
           eventClick={handleEventClick}
           {...tooltipHandlers}
+          windowResize={(arg) => {
+            const calendarApi = arg.view.calendar;
+            if (window.innerWidth < 768 && calendarApi.view.type !== "timeGridDay") {
+              calendarApi.changeView("timeGridDay");
+            } else if (window.innerWidth >= 768 && calendarApi.view.type === "timeGridDay") {
+              calendarApi.changeView("timeGridWeek");
+            }
+          }}
         />
       </div>
 
@@ -360,6 +379,16 @@ export default function SkatingCalendar() {
           </div>
         ))}
       </div>
+
+      <style>{`
+        @media (max-width: 768px) {
+          .fc .fc-event-title { font-size: 0.75rem !important; line-height: 1rem !important; }
+          .fc .fc-toolbar-title { font-size: 1rem !important; }
+          .fc .fc-button { padding: 0.25rem 0.5rem !important; font-size: 0.75rem !important; }
+          .fc-timegrid-slot { height: 2.5rem !important; }
+          .fc-view-harness { overflow-x: auto; }
+        }
+      `}</style>
     </div>
   );
 }
