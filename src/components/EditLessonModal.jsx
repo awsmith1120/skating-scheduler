@@ -2,6 +2,15 @@ import { useState, useEffect } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 
+/**
+ * EditLessonModal
+ * Restores: end time auto-sets to 30 minutes after selected start time.
+ * Props:
+ *  - lesson (event-like object with id, start, end, extendedProps)
+ *  - onUpdate(updatedLesson)
+ *  - onDelete(lessonId)
+ *  - onClose()
+ */
 export default function EditLessonModal({ lesson, onUpdate, onDelete, onClose }) {
   const [student, setStudent] = useState("");
   const [students, setStudents] = useState([]);
@@ -10,39 +19,38 @@ export default function EditLessonModal({ lesson, onUpdate, onDelete, onClose })
   const [start, setStart] = useState(new Date());
   const [end, setEnd] = useState(new Date());
 
-  // 🧠 Load student list from localStorage
+  // Load student list
   useEffect(() => {
-    const saved = localStorage.getItem("students");
-    if (saved) setStudents(JSON.parse(saved));
+    try {
+      const saved = localStorage.getItem("students");
+      if (saved) setStudents(JSON.parse(saved));
+    } catch {}
   }, []);
 
-  // 🧩 Initialize modal with selected lesson info
+  // Seed values from lesson
   useEffect(() => {
-    if (lesson) {
-      setStudent(lesson.extendedProps?.student || "");
-      setCoach(lesson.extendedProps?.coach || "");
-      setRink(lesson.extendedProps?.rink || "");
-      setStart(new Date(lesson.start));
-      setEnd(new Date(lesson.end));
-    }
+    if (!lesson) return;
+    const props = lesson.extendedProps || {};
+    setStudent(props.student || "");
+    setCoach(props.coach || "Silvia"); // Silvia, John, Sherry
+    setRink(props.rink || "Den");
+
+    const s = lesson.start instanceof Date ? lesson.start : new Date(lesson.start);
+    const e = lesson.end instanceof Date ? lesson.end : new Date(lesson.end);
+    setStart(s);
+    setEnd(e);
   }, [lesson]);
 
-  // 💾 Save updated student list if Silvia edits a new name
   const saveStudentName = (name) => {
-    const trimmed = name.trim();
-    if (trimmed && !students.includes(trimmed)) {
-      const updated = [...students, trimmed];
-      setStudents(updated);
-      localStorage.setItem("students", JSON.stringify(updated));
-    }
-  };
-
-  // ⏱ Adjust end time automatically to 30 min after start
-  const handleStartChange = (date) => {
-    if (!date) return;
-    setStart(date);
-    const newEnd = new Date(date.getTime() + 30 * 60000);
-    setEnd(newEnd);
+    try {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      const set = new Set(students);
+      set.add(trimmed);
+      const next = Array.from(set).sort((a, b) => a.localeCompare(b));
+      setStudents(next);
+      localStorage.setItem("students", JSON.stringify(next));
+    } catch {}
   };
 
   const handleSubmit = (e) => {
@@ -50,6 +58,14 @@ export default function EditLessonModal({ lesson, onUpdate, onDelete, onClose })
     const trimmed = student.trim();
     if (!trimmed) {
       alert("Please enter a student name");
+      return;
+    }
+    if (!(start instanceof Date) || isNaN(+start) || !(end instanceof Date) || isNaN(+end)) {
+      alert("Please select valid start and end times");
+      return;
+    }
+    if (end <= start) {
+      alert("End time must be after start time");
       return;
     }
 
@@ -63,116 +79,151 @@ export default function EditLessonModal({ lesson, onUpdate, onDelete, onClose })
       extendedProps: { student: trimmed, coach, rink },
     };
 
-    onUpdate(updatedLesson);
+    onUpdate?.(updatedLesson);
+    onClose?.();
+  };
+
+  const handleDelete = () => {
+    if (!lesson?.id) return;
+    if (confirm("Delete this lesson?")) {
+      onDelete?.(lesson.id);
+      onClose?.();
+    }
+  };
+
+  const onBackdrop = (e) => {
+    if (e.target === e.currentTarget) onClose?.();
   };
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center bg-black/60 z-50"
-      onClick={onClose}
+      className="
+        fixed inset-0 z-50 flex items-end sm:items-center justify-center
+        bg-black/50 p-0 sm:p-4
+      "
+      onMouseDown={onBackdrop}
     >
       <div
-        className="bg-white rounded-xl shadow-xl p-6 w-96 space-y-4 relative z-60"
-        onClick={(e) => e.stopPropagation()}
+        className="
+          bg-white shadow-xl relative space-y-4
+          w-screen h-[100dvh] rounded-none p-4
+          sm:w-[28rem] sm:h-auto sm:rounded-2xl sm:p-6
+        "
       >
-        <h2 className="text-xl font-semibold text-center mb-2">Edit Lesson</h2>
+        {/* Close button */}
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={onClose}
+          className="absolute right-3 top-3 p-2 rounded-full hover:bg-gray-100 active:bg-gray-200"
+        >
+          ×
+        </button>
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {/* Student */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Student</label>
-            <input
-              list="student-list"
-              type="text"
-              value={student}
-              onChange={(e) => setStudent(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              placeholder="Enter or select a student"
-            />
-            <datalist id="student-list">
-              {students.map((name, idx) => (
-                <option key={idx} value={name} />
-              ))}
-            </datalist>
+        <h2 className="text-xl sm:text-2xl font-semibold pr-8">Edit Lesson</h2>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-gray-700">Student</span>
+              <input
+                type="text"
+                list="students"
+                value={student}
+                onChange={(e) => setStudent(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg p-2 text-base"
+                placeholder="Student name"
+                autoFocus
+              />
+              <datalist id="students">
+                {students.map((s) => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-gray-700">Coach</span>
+              <select
+                value={coach}
+                onChange={(e) => setCoach(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg p-2 text-base"
+              >
+                <option>Silvia</option>
+                <option>John</option>
+                <option>Sherry</option>
+              </select>
+            </label>
           </div>
 
-          {/* Coach */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Coach</label>
-            <select
-              value={coach}
-              onChange={(e) => setCoach(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-            >
-              <option>Silvia</option>
-              <option>John</option>
-              <option>Sherry</option>
-            </select>
-          </div>
-
-          {/* Rink */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Rink</label>
+          <label className="flex flex-col gap-1">
+            <span className="text-sm text-gray-700">Rink</span>
             <select
               value={rink}
               onChange={(e) => setRink(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="w-full border border-gray-300 rounded-lg p-2 text-base"
             >
-              <option>Den</option>
-              <option>Stadium</option>
-              <option>Mezzanine</option>
+              <option value="Stadium">Stadium</option>
+              <option value="Mezzanine">Mezzanine</option>
+              <option value="Den">Den</option>
             </select>
+          </label>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-gray-700">Start</span>
+              <DatePicker
+                selected={start}
+                onChange={(d) => {
+                  if (!d) return;
+                  setStart(d);
+                  // snap end to +30 minutes from selected start
+                  setEnd(new Date(d.getTime() + 30 * 60 * 1000));
+                }}
+                showTimeSelect
+                withPortal
+                timeIntervals={15}
+                dateFormat="Pp"
+                className="w-full border border-gray-300 rounded-lg p-2 text-base"
+              />
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-sm text-gray-700">End</span>
+              <DatePicker
+                selected={end}
+                onChange={(d) => d && setEnd(d)}
+                showTimeSelect
+                withPortal
+                timeIntervals={15}
+                dateFormat="Pp"
+                minDate={start}
+                className="w-full border border-gray-300 rounded-lg p-2 text-base"
+              />
+            </label>
           </div>
 
-          {/* Start time */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Start Time</label>
-            <DatePicker
-              selected={start}
-              onChange={handleStartChange}
-              showTimeSelect
-              timeIntervals={15}
-              dateFormat="Pp"
-              className="w-full border border-gray-300 rounded-lg p-2"
-            />
-          </div>
-
-          {/* End time */}
-          <div>
-            <label className="block text-sm font-medium mb-1">End Time</label>
-            <DatePicker
-              selected={end}
-              onChange={(date) => setEnd(date)}
-              showTimeSelect
-              timeIntervals={15}
-              dateFormat="Pp"
-              className="w-full border border-gray-300 rounded-lg p-2"
-            />
-          </div>
-
-          {/* Buttons */}
-          <div className="flex justify-between items-center pt-4">
+          <div className="flex flex-col-reverse sm:flex-row gap-3 justify-between pt-2">
             <button
               type="button"
-              onClick={() => onDelete(lesson.id)}
-              className="px-3 py-1.5 rounded-md bg-red-600 text-white text-sm hover:bg-red-700 transition"
+              onClick={handleDelete}
+              className="min-h-11 px-4 py-2 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 transition w-full sm:w-auto"
             >
               Delete
             </button>
-
-            <div className="flex gap-3">
+            <div className="flex gap-3 justify-end w-full sm:w-auto">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-3 py-1.5 rounded-md bg-gray-200 text-sm hover:bg-gray-300 transition"
+                className="min-h-11 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 transition"
+                className="min-h-11 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
               >
-                Save
+                Save Changes
               </button>
             </div>
           </div>
