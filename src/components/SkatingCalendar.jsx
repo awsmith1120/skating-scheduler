@@ -2,7 +2,7 @@ import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AddLessonModal from "./AddLessonModal";
 import EditLessonModal from "./EditLessonModal";
 import { db } from "./firebaseConfig";
@@ -17,19 +17,23 @@ import {
 } from "firebase/firestore";
 
 /**
- * Helper to normalize Firestore doc to FullCalendar event.
  * Coach colors: Silvia (blue), John (green), Sherry (rose).
  */
 const colorMap = {
-  Silvia: "#3b82f6",  // blue-500
-  John: "#22c55e",    // green-500
-  Sherry: "#f43f5e",  // rose-500
+  Silvia: "#3b82f6", // blue-500
+  John: "#22c55e",   // green-500
+  Sherry: "#f43f5e", // rose-500
 };
 
+// 🔒 Hardcoded password (change this to your preferred string)
+const EDIT_PASSWORD = "letmein";
+
+/**
+ * Normalize Firestore doc to FullCalendar event.
+ */
 function normalizeLesson(snapshotDoc) {
   const id = snapshotDoc.id;
   const data = snapshotDoc.data() || {};
-  // Support both flattened fields and extendedProps
   const props = data.extendedProps || {};
   const student = props.student ?? data.student ?? "";
   const coach = props.coach ?? data.coach ?? "Silvia";
@@ -46,7 +50,6 @@ function normalizeLesson(snapshotDoc) {
       : new Date(data.end || start.getTime() + 30 * 60 * 1000);
 
   const title = data.title || `${student} - ${coach} (${rink})`;
-
   const coachColor = colorMap[coach] || "#6366f1"; // indigo-500 fallback
 
   return {
@@ -63,7 +66,15 @@ function normalizeLesson(snapshotDoc) {
 export default function SkatingCalendar() {
   const calendarRef = useRef(null);
   const [events, setEvents] = useState([]);
-  const [editingLocked, setEditingLocked] = useState(false);
+
+  // Password-protected editing (locked by default)
+  const [editingLocked, setEditingLocked] = useState(true);
+
+  // Restore unlock state for this tab
+  useEffect(() => {
+    const wasUnlocked = sessionStorage.getItem("calendar_unlocked") === "1";
+    if (wasUnlocked) setEditingLocked(false);
+  }, []);
 
   // Modal state
   const [addOpen, setAddOpen] = useState(false);
@@ -80,7 +91,7 @@ export default function SkatingCalendar() {
     return () => unsubscribe();
   }, []);
 
-  // Responsive: detect mobile
+  // Simple responsive tweak: treat <=640px as mobile
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 640px)");
@@ -90,7 +101,7 @@ export default function SkatingCalendar() {
     return () => mq.removeEventListener?.("change", apply);
   }, []);
 
-  // Event coloring hook (for safety if event objects lack backgroundColor)
+  // Color safety if any events render without colors
   const eventDidMount = (info) => {
     const coach = info.event.extendedProps?.coach;
     const color = colorMap[coach];
@@ -100,7 +111,29 @@ export default function SkatingCalendar() {
     }
   };
 
-  // CRUD handlers
+  // --- Password helpers ---
+  const promptForPassword = (purpose = "unlock editing") => {
+    const input = window.prompt(`Enter password to ${purpose}:`, "");
+    return input;
+  };
+
+  const attemptUnlock = () => {
+    const input = promptForPassword("unlock editing");
+    if (input == null) return; // cancelled
+    if (input === EDIT_PASSWORD) {
+      setEditingLocked(false);
+      sessionStorage.setItem("calendar_unlocked", "1");
+    } else {
+      alert("Incorrect password.");
+    }
+  };
+
+  const relock = () => {
+    setEditingLocked(true);
+    sessionStorage.removeItem("calendar_unlocked");
+  };
+
+  // --- CRUD handlers ---
   const handleAddLesson = async (newLesson) => {
     const props = newLesson.extendedProps || {};
     const title = `${props.student} - ${props.coach} (${props.rink})`;
@@ -113,7 +146,10 @@ export default function SkatingCalendar() {
   };
 
   const handleEventClick = (clickInfo) => {
-    if (editingLocked) return;
+    if (editingLocked) {
+      attemptUnlock();
+      return;
+    }
     const ev = clickInfo.event;
     setSelectedLesson({
       id: ev.id,
@@ -166,22 +202,35 @@ export default function SkatingCalendar() {
         <h1 className="text-2xl font-semibold">Skating Schedule</h1>
 
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setEditingLocked((v) => !v)}
-            className={`px-3 py-2 rounded-lg border transition ${
-              editingLocked
-                ? "border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100"
-                : "border-gray-300 text-gray-700 hover:bg-gray-50"
-            }`}
-            title={editingLocked ? "Unlock editing" : "Lock editing"}
-          >
-            {editingLocked ? "Unlock Editing" : "Lock Editing"}
-          </button>
+          {editingLocked ? (
+            <button
+              type="button"
+              onClick={attemptUnlock}
+              className="px-3 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition"
+              title="Unlock editing"
+            >
+              Unlock (Password)
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={relock}
+              className="px-3 py-2 rounded-lg border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 transition"
+              title="Lock editing"
+            >
+              Lock Editing
+            </button>
+          )}
 
           <button
             type="button"
-            onClick={() => setAddOpen(true)}
+            onClick={() => {
+              if (editingLocked) {
+                attemptUnlock();
+              } else {
+                setAddOpen(true);
+              }
+            }}
             className="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
           >
             + Add Lesson
